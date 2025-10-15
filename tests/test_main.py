@@ -17,7 +17,7 @@ async def test_call_llm_for_code_with_empty_response_retries_and_fails():
         mock_client.return_value.__aenter__.return_value.post = mock_post
 
         with pytest.raises(Exception, match="LLM Code Generation Failure"):
-            await call_llm_for_code("test prompt", "test_task", [])
+            await call_llm_for_code("test prompt", "test_task")
 
         # Verify that the API was called 3 times (initial + 2 retries)
         assert mock_post.call_count == 3
