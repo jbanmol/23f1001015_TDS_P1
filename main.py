@@ -9,6 +9,8 @@ import json # For parsing the structured JSON response from the LLM
 import os # For configuration and file system operations
 import base64
 import re
+
+os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
 import git  # For local Git operations
 import time
 import shutil
