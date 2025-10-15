@@ -10,8 +10,6 @@ import os # For configuration and file system operations
 import base64
 import re
 
-os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
-import git  # For local Git operations
 import time
 import shutil
 import stat # For robust cleanup on Windows
@@ -45,9 +43,11 @@ received_task_data = {}
 
 # --- REFACTORING: SPLIT deploy_to_github ---
 
-async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, repo_url_http: str, round_index: int) -> git.Repo:
+async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, repo_url_http: str, round_index: int) -> "git.Repo":
     """Handles creating the remote repo (R1) or cloning the existing one (R2+) into an EMPTY directory."""
     
+    os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
+    import git
     github_username = settings.GITHUB_USERNAME
     github_token = settings.GITHUB_TOKEN
     
@@ -88,9 +88,11 @@ async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, 
             raise Exception("Git operation failed during repository setup.")
 
 
-async def commit_and_publish(repo: git.Repo, task_id: str, round_index: int, repo_name: str) -> dict:
+async def commit_and_publish(repo: "git.Repo", task_id: str, round_index: int, repo_name: str) -> dict:
     """Handles adding, committing, pushing, and configuring GitHub Pages after files are saved."""
 
+    os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
+    import git
     github_username = settings.GITHUB_USERNAME
     github_token = settings.GITHUB_TOKEN
     
