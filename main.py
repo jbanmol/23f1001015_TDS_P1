@@ -31,7 +31,7 @@ GITHUB_PAGES_BASE = f"https://{settings.GITHUB_USERNAME}.github.io"
 
 # LLM Configuration (provider-selectable)
 LLM_PROVIDER = (settings.LLM_PROVIDER or "gemini").lower()
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
 OPENAI_CHAT_COMPLETIONS_URL = f"{settings.OPENAI_API_BASE.rstrip('/')}/chat/completions"
 GEMINI_API_KEY = settings.GEMINI_API_KEY
 OPENAI_API_KEY = settings.OPENAI_API_KEY
