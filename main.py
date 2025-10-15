@@ -252,7 +252,16 @@ async def call_llm_for_code(prompt: str, task_id: str) -> dict:
         "- Code must be clean, well-commented, and follow best practices\n"
         "- UI should be intuitive, visually appealing, and professional\n"
         "- Performance optimized (minimal external dependencies)\n"
-        "- Security conscious (input validation, XSS prevention)"
+        "- Security conscious (input validation, XSS prevention)\n\n"
+        "CRITICAL ERROR HANDLING REQUIREMENTS:\n"
+        "- Wrap ALL data parsing in try-catch blocks\n"
+        "- Validate data types before processing (Array.isArray(), typeof checks)\n"
+        "- Implement graceful fallbacks for API failures (mock data, offline mode)\n"
+        "- Add user-friendly error messages with retry options\n"
+        "- Handle CORS, network, and permission errors appropriately\n"
+        "- Never let JavaScript errors crash the entire application\n"
+        "- Use optional chaining (?.) and nullish coalescing (??) operators\n"
+        "- Provide loading states and error boundaries for async operations"
     )
 
     # Use exponential backoff for the API call
@@ -521,7 +530,13 @@ async def generate_files_and_deploy(task_data: TaskRequest):
                 "- Use modern JavaScript (ES6+) and best practices\n"
                 "- Implement proper input validation and error states\n"
                 "- Optimize for performance and user experience\n"
-                "- Include loading indicators for async operations"
+                "- Include loading indicators for async operations\n\n"
+                "RELIABILITY & COMPATIBILITY:\n"
+                "- Ensure new features don't break existing functionality\n"
+                "- Add thorough error handling for all new integrations\n"
+                "- Test interactions between old and new features\n"
+                "- Maintain data consistency across feature updates\n"
+                "- Preserve user state and preferences during modifications"
             )
         else:
             # ROUND 1 - INITIAL CREATION TASK
@@ -544,7 +559,13 @@ async def generate_files_and_deploy(task_data: TaskRequest):
                 "- Implement vanilla JavaScript or lightweight libraries only\n"
                 "- Include proper HTML5 semantic elements and ARIA attributes\n"
                 "- Add meta tags for SEO and social sharing\n"
-                "- Implement loading states and user feedback mechanisms"
+                "- Implement loading states and user feedback mechanisms\n\n"
+                "RELIABILITY FOCUS:\n"
+                "- Test edge cases: empty data, network failures, invalid inputs\n"
+                "- Provide meaningful fallbacks for all external dependencies\n"
+                "- Ensure the app works even without internet connectivity\n"
+                "- Add comprehensive error messages for debugging\n"
+                "- Use defensive programming patterns throughout"
             )
         
         # Add attachment context with enhanced instructions
@@ -559,7 +580,34 @@ async def generate_files_and_deploy(task_data: TaskRequest):
                 "- For JSON files: Use for configuration or data processing\n"
                 "- For images: Display with proper alt text and responsive sizing\n"
                 "- Implement error handling if files cannot be loaded\n"
-                "- Show loading states while processing attachment data"
+                "- Show loading states while processing attachment data\n\n"
+                "API INTEGRATION BEST PRACTICES:\n"
+                "- Always provide fallback/mock data when external APIs fail\n"
+                "- Use fetch() with proper error handling and timeouts\n"
+                "- Implement retry logic with exponential backoff\n"
+                "- Handle network errors, CORS issues, and rate limiting\n"
+                "- Validate API responses before processing (check structure/types)\n"
+                "- Provide clear error messages explaining what went wrong\n"
+                "- Include offline functionality with cached/default data\n\n"
+                "DATA VALIDATION EXAMPLES (CRITICAL FOR RELIABILITY):\n"
+                "```javascript\n"
+                "// Always validate arrays before forEach\n"
+                "if (Array.isArray(events) && events.length > 0) {\n"
+                "    events.forEach(event => { /* safe processing */ });\n"
+                "} else {\n"
+                "    console.warn('Events data invalid, using fallback');\n"
+                "    displayFallbackMessage();\n"
+                "}\n\n"
+                "// Robust JSON parsing\n"
+                "try {\n"
+                "    const data = JSON.parse(response);\n"
+                "    if (data && typeof data === 'object') {\n"
+                "        processData(data);\n"
+                "    }\n"
+                "} catch (error) {\n"
+                "    showError('Data parsing failed: ' + error.message);\n"
+                "}\n"
+                "```"
             )
         # --- MODIFICATION END ---
         
