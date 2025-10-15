@@ -51,30 +51,12 @@ received_task_data = {}
 
 # --- REFACTORING: SPLIT deploy_to_github ---
 
-async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, repo_url_http: str, round_index: int) -> "git.Repo":
+async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, repo_url_http: str, round_index: int):
     """Handles creating the remote repo (R1) or cloning the existing one (R2+) into an EMPTY directory."""
     
-    # --- DIAGNOSTIC CODE START ---
-    try:
-        print("--- [DIAGNOSTIC] Running 'which git' ---")
-        result = subprocess.run(['which', 'git'], capture_output=True, text=True, check=True)
-        print(f"--- [DIAGNOSTIC] 'which git' STDOUT: {result.stdout.strip()} ---")
+ 
 
-        git_path = result.stdout.strip()
-        print(f"--- [DIAGNOSTIC] Running 'ls -l {git_path}' ---")
-        ls_result = subprocess.run(['ls', '-l', git_path], capture_output=True, text=True, check=True)
-        print(f"--- [DIAGNOSTIC] 'ls -l' STDOUT: {ls_result.stdout.strip()} ---")
-
-    except FileNotFoundError:
-        print("--- [DIAGNOSTIC] 'which' command not found. ---")
-    except subprocess.CalledProcessError as e:
-        print(f"--- [DIAGNOSTIC] Command failed. STDERR: {e.stderr} ---")
-    except Exception as e:
-        print(f"--- [DIAGNOSTIC] An unexpected error occurred: {e} ---")
-    # --- DIAGNOSTIC CODE END ---
-
-    os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
-    import git
+ 
     github_username = settings.GITHUB_USERNAME
     github_token = settings.GITHUB_TOKEN
     
@@ -115,7 +97,7 @@ async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, 
             raise Exception("Git operation failed during repository setup.")
 
 
-async def commit_and_publish(repo: "git.Repo", task_id: str, round_index: int, repo_name: str) -> dict:
+async def commit_and_publish(repo, task_id: str, round_index: int, repo_name: str) -> dict:
     """Handles adding, committing, pushing, and configuring GitHub Pages after files are saved."""
 
     github_username = settings.GITHUB_USERNAME
