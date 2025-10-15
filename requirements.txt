@@ -1,0 +1,16 @@
+# Core FastAPI dependencies
+fastapi
+uvicorn[standard]
+pydantic
+httpx
+GitPython
+python-dotenv
+pydantic[email]
+pydantic-settings
+
+# Testing dependencies
+pytest
+pytest-asyncio
+
+# run: pip install -r requirements.txt
+# run: python -m uvicorn main:app --reload
