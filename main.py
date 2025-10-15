@@ -1,3 +1,11 @@
+# Add at the top of main.py - BEFORE all other imports
+import os
+os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
+os.environ['GIT_PYTHON_REFRESH'] = 'quiet'
+
+# Now import GitPython at module level
+import git
+
 from fastapi import FastAPI, HTTPException
 from starlette.responses import JSONResponse
 from fastapi import Request
@@ -6,7 +14,6 @@ from config import get_settings
 import asyncio
 import httpx # Used for making the HTTP notification call
 import json # For parsing the structured JSON response from the LLM
-import os # For configuration and file system operations
 import base64
 import re
 
@@ -46,8 +53,6 @@ received_task_data = {}
 async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, repo_url_http: str, round_index: int) -> "git.Repo":
     """Handles creating the remote repo (R1) or cloning the existing one (R2+) into an EMPTY directory."""
     
-    os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
-    import git
     github_username = settings.GITHUB_USERNAME
     github_token = settings.GITHUB_TOKEN
     
@@ -91,8 +96,6 @@ async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, 
 async def commit_and_publish(repo: "git.Repo", task_id: str, round_index: int, repo_name: str) -> dict:
     """Handles adding, committing, pushing, and configuring GitHub Pages after files are saved."""
 
-    os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
-    import git
     github_username = settings.GITHUB_USERNAME
     github_token = settings.GITHUB_TOKEN
     
@@ -187,7 +190,7 @@ async def save_generated_files_locally(task_id: str, files: dict) -> str:
     Saves the generated files (index.html, README.md, LICENSE) into a local 
     directory named after the task_id within the 'generated_tasks' folder.
     """
-    base_dir = os.path.join(os.getcwd(), "generated_tasks")
+    base_dir = "/tmp"
     task_dir = os.path.join(base_dir, task_id)
     
     # Ensure the task-specific directory exists
@@ -418,7 +421,7 @@ async def generate_files_and_deploy(task_data: TaskRequest):
     
     try:
         # 0. Setup local directory
-        base_dir = os.path.join(os.getcwd(), "generated_tasks")
+        base_dir = "/tmp"
         local_path = os.path.join(base_dir, task_id)
 
         # --- ROBUST CLEANUP LOGIC ---
