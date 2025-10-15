@@ -9,6 +9,7 @@ import json # For parsing the structured JSON response from the LLM
 import os # For configuration and file system operations
 import base64
 import re
+import subprocess
 
 import time
 import shutil
@@ -46,6 +47,25 @@ received_task_data = {}
 async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, repo_url_http: str, round_index: int) -> "git.Repo":
     """Handles creating the remote repo (R1) or cloning the existing one (R2+) into an EMPTY directory."""
     
+    # --- DIAGNOSTIC CODE START ---
+    try:
+        print("--- [DIAGNOSTIC] Running 'which git' ---")
+        result = subprocess.run(['which', 'git'], capture_output=True, text=True, check=True)
+        print(f"--- [DIAGNOSTIC] 'which git' STDOUT: {result.stdout.strip()} ---")
+
+        git_path = result.stdout.strip()
+        print(f"--- [DIAGNOSTIC] Running 'ls -l {git_path}' ---")
+        ls_result = subprocess.run(['ls', '-l', git_path], capture_output=True, text=True, check=True)
+        print(f"--- [DIAGNOSTIC] 'ls -l' STDOUT: {ls_result.stdout.strip()} ---")
+
+    except FileNotFoundError:
+        print("--- [DIAGNOSTIC] 'which' command not found. ---")
+    except subprocess.CalledProcessError as e:
+        print(f"--- [DIAGNOSTIC] Command failed. STDERR: {e.stderr} ---")
+    except Exception as e:
+        print(f"--- [DIAGNOSTIC] An unexpected error occurred: {e} ---")
+    # --- DIAGNOSTIC CODE END ---
+
     os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
     import git
     github_username = settings.GITHUB_USERNAME
@@ -187,7 +207,7 @@ async def save_generated_files_locally(task_id: str, files: dict) -> str:
     Saves the generated files (index.html, README.md, LICENSE) into a local 
     directory named after the task_id within the 'generated_tasks' folder.
     """
-    base_dir = os.path.join(os.getcwd(), "generated_tasks")
+    base_dir = "/tmp"
     task_dir = os.path.join(base_dir, task_id)
     
     # Ensure the task-specific directory exists
@@ -418,7 +438,7 @@ async def generate_files_and_deploy(task_data: TaskRequest):
     
     try:
         # 0. Setup local directory
-        base_dir = os.path.join(os.getcwd(), "generated_tasks")
+        base_dir = "/tmp"
         local_path = os.path.join(base_dir, task_id)
 
         # --- ROBUST CLEANUP LOGIC ---
