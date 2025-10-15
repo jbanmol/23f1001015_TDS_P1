@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from starlette.responses import JSONResponse
+from fastapi import Request
 from models import TaskRequest # Ensure models.py is available
 from config import get_settings
 import asyncio
@@ -28,11 +29,12 @@ GITHUB_API_BASE = "https://api.github.com"
 GITHUB_PAGES_BASE = f"https://{settings.GITHUB_USERNAME}.github.io"
 # --------------------------
 
-# LLM Configuration
+# LLM Configuration (provider-selectable)
+LLM_PROVIDER = (settings.LLM_PROVIDER or "gemini").lower()
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent"
-# NOTE: API key is left empty (or read from environment) as per instructions; 
-# the execution environment is assumed to handle the required authentication.
-GEMINI_API_KEY = settings.GEMINI_API_KEY 
+OPENAI_CHAT_COMPLETIONS_URL = f"{settings.OPENAI_API_BASE.rstrip('/')}/chat/completions"
+GEMINI_API_KEY = settings.GEMINI_API_KEY
+OPENAI_API_KEY = settings.OPENAI_API_KEY
 # Initialize the FastAPI application
 app = FastAPI(
     title="Automated Task Receiver & Processor",
@@ -308,56 +310,90 @@ async def call_llm_for_code(prompt: str, task_id: str, image_parts: list) -> dic
         # If no images, use the original structure with only the text prompt
         contents.append({ "parts": [{ "text": prompt }] })
 
-    # Construct the final API payload
-    payload = {
-        "contents": contents,  
-        "systemInstruction": { "parts": [{ "text": system_prompt }] },
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": response_schema
-        }
-    }
-    
+    # Log provider/base for debugging
+    try:
+        token_preview = (OPENAI_API_KEY[:6] + "…") if (LLM_PROVIDER == "openai" and OPENAI_API_KEY) else "none"
+        print(f"--- [LLM_CALL] Provider={LLM_PROVIDER}, OpenAI Base={settings.OPENAI_API_BASE if LLM_PROVIDER=='openai' else 'n/a'}, Token={token_preview} ---")
+    except Exception:
+        pass
+
     # Use exponential backoff for the API call 
     max_retries = 3
     base_delay = 1
-    
+
     for attempt in range(max_retries):
         try:
-            # Construct the URL with the API key
-            url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
             async with httpx.AsyncClient(timeout=60) as client:
-                response = await client.post(
-                    url, 
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-                response.raise_for_status() # Raises an exception for 4xx/5xx status codes
-                
-                # Parse the response to get the structured JSON text
-                result = response.json()
-                
-                # Extract the generated JSON string from the result
-                json_text = result['candidates'][0]['content']['parts'][0]['text']
-                
-                # The LLM output is a JSON string, so we need to parse it into a Python dict
-                generated_files = json.loads(json_text)
-                
+                if LLM_PROVIDER == "openai":
+                    if not OPENAI_API_KEY:
+                        raise Exception("OPENAI_API_KEY is not set but LLM_PROVIDER=openai")
+                    # Build OpenAI Chat Completions payload
+                    openai_messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ]
+                    # In this simplified path we ignore image_parts, as OpenAI images would require different handling
+                    openai_payload = {
+                        "model": "openrouter/auto",
+                        "response_format": {"type": "json_object"},
+                        "messages": openai_messages
+                    }
+                    response = await client.post(
+                        OPENAI_CHAT_COMPLETIONS_URL,
+                        json=openai_payload,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                            "Authorization": f"Bearer {OPENAI_API_KEY}",
+                            # OpenRouter-compatible optional headers (can improve auth/routing)
+                            "HTTP-Referer": os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:8000"),
+                            "X-Title": os.getenv("OPENROUTER_X_TITLE", "TDS Task Receiver")
+                        }
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    json_text = result["choices"][0]["message"]["content"]
+                    generated_files = json.loads(json_text)
+                else:
+                    if not GEMINI_API_KEY:
+                        raise Exception("GEMINI_API_KEY is not set but LLM_PROVIDER=gemini")
+                    # Construct the final Gemini API payload
+                    payload = {
+                        "contents": contents,  
+                        "systemInstruction": { "parts": [{ "text": system_prompt }] },
+                        "generationConfig": {
+                            "responseMimeType": "application/json",
+                            "responseSchema": response_schema
+                        }
+                    }
+                    url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
+                    response = await client.post(
+                        url,
+                        json=payload,
+                        headers={"Content-Type": "application/json"}
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    json_text = result['candidates'][0]['content']['parts'][0]['text']
+                    generated_files = json.loads(json_text)
+
                 print(f"--- [LLM_CALL] Successfully generated files on attempt {attempt + 1}. ---")
                 return generated_files
 
         except httpx.HTTPStatusError as e:
-            print(f"--- [LLM_CALL] HTTP Error on attempt {attempt + 1}: {e}. ---")
-        except (httpx.RequestError, KeyError, json.JSONDecodeError) as e:
-            # Catches network errors, missing structure in the result, or invalid JSON output
+            try:
+                body = e.response.text
+            except Exception:
+                body = "<no body>"
+            print(f"--- [LLM_CALL] HTTP Error on attempt {attempt + 1}: {e}. Body: {body} ---")
+        except (httpx.RequestError, KeyError, json.JSONDecodeError, Exception) as e:
             print(f"--- [LLM_CALL] Processing Error on attempt {attempt + 1}: {e}. ---")
-        
+
         if attempt < max_retries - 1:
             delay = base_delay * (2 ** attempt)
             print(f"--- [LLM_CALL] Retrying LLM call in {delay} seconds... ---")
             await asyncio.sleep(delay)
 
-    # If all retries fail, we raise an exception which is caught downstream
     print("--- [LLM_CALL] Failed to generate code after multiple retries. ---")
     raise Exception("LLM Code Generation Failure")
 
@@ -654,3 +690,5 @@ async def get_status():
         return {"last_received_task": received_task_data}
     else:
         return {"message": "Awaiting first task submission to /ready"}
+
+    
