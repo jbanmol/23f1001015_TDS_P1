@@ -1,3 +1,13 @@
+---
+title: TDS P1 - LLM Code Deployment
+emoji: 🚀
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_file: main.py
+pinned: false
+---
+
 # Automated Task Receiver & Processor
 
 This project is a FastAPI application that serves as an endpoint for receiving task assignments. Upon receiving a task, it triggers an AI-powered code generation process and deploys the resulting web application to GitHub Pages.
