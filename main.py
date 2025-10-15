@@ -29,11 +29,8 @@ GITHUB_API_BASE = "https://api.github.com"
 GITHUB_PAGES_BASE = f"https://{settings.GITHUB_USERNAME}.github.io"
 # --------------------------
 
-# LLM Configuration (provider-selectable)
-LLM_PROVIDER = (settings.LLM_PROVIDER or "gemini").lower()
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent"
+# LLM Configuration
 OPENAI_CHAT_COMPLETIONS_URL = f"{settings.OPENAI_API_BASE.rstrip('/')}/chat/completions"
-GEMINI_API_KEY = settings.GEMINI_API_KEY
 OPENAI_API_KEY = settings.OPENAI_API_KEY
 # Initialize the FastAPI application
 app = FastAPI(
@@ -179,47 +176,6 @@ async def commit_and_publish(repo: git.Repo, task_id: str, round_index: int, rep
 # --- REMOVED: Original deploy_to_github (replaced by setup_local_repo and commit_and_publish) ---
 # The function name deploy_to_github is now DELETED.
 
-        
-def data_uri_to_gemini_part(data_uri: str) -> dict:
-    """
-    Extracts Base64 data and MIME type from a Data URI and formats it 
-    as the 'inlineData' structure required for a Gemini API multimodal part.
-    """
-    if not data_uri or not data_uri.startswith("data:"):
-        print("ERROR: Invalid Data URI provided.")
-        return None
-
-    try:
-        # Extract MIME type and Base64 part using regex
-        match = re.search(r"data:(?P<mime_type>[^;]+);base64,(?P<base64_data>.*)", data_uri, re.IGNORECASE)
-        if not match:
-            print("ERROR: Could not parse MIME type or base64 data from URI.")
-            return None
-
-        mime_type = match.group('mime_type')
-        base64_data = match.group('base64_data')
-
-        # Check if it's a known image type to ensure we only send images to the LLM
-        if not mime_type.startswith("image/"):
-            print(f"Skipping attachment with non-image MIME type: {mime_type}")
-            return None
-        
-        return {
-            "inlineData": {
-                "data": base64_data,  # The Base64 string itself
-                "mimeType": mime_type
-            }
-        }
-    except Exception as e:
-        print(f"ERROR creating Gemini Part from URI: {e}")
-        return None
-
-def is_image_data_uri(data_uri: str) -> bool:
-    """Checks if the data URI refers to an image based on the MIME type."""
-    if not data_uri.startswith("data:"):
-        return False
-    # Check for "image/" prefix in the MIME type part of the URI
-    return re.search(r"data:image/[^;]+;base64,", data_uri, re.IGNORECASE) is not None
 # --- Helper Functions for File System Operations ---
 
 async def save_generated_files_locally(task_id: str, files: dict) -> str:
@@ -254,30 +210,15 @@ async def save_generated_files_locally(task_id: str, files: dict) -> str:
 
 # --- Helper Functions for External Services ---
 
-async def call_llm_for_code(prompt: str, task_id: str, image_parts: list) -> dict:
+async def call_llm_for_code(prompt: str, task_id: str) -> dict:
     """
-    Calls the Gemini API to generate the web application code and structured
-    metadata (README and LICENSE), now supporting image inputs.
+    Calls the configured OpenAI-compatible API to generate the web application code
+    and structured metadata (README and LICENSE).
     The response is strictly validated against a JSON schema.
     """
-    print(f"--- [LLM_CALL] Attempting to generate code for Task: {task_id} using Gemini API ---")
-      # --- Improve vague user prompts automatically ---
-    normalized_prompt = prompt.lower().strip()
+    print(f"--- [LLM_CALL] Attempting to generate code for Task: {task_id} using OpenAI API ---")
 
-    # If the user gave a vague short task like "create a captcha solver..."
-    # auto-extend it into a detailed instruction so Gemini knows what to do
-    if "captcha solver" in normalized_prompt and "responsive" not in normalized_prompt:
-        print("--- [LLM_CALL] Detected vague captcha solver prompt — auto-expanding ---")
-        prompt += (
-            "\n\n"
-            "Ensure the web app is a single, complete, fully responsive HTML file using Tailwind CSS. "
-            "It must fetch an image from the query parameter '?url=https://.../image.png', display it, "
-            "and perform OCR using Tesseract.js via CDN. "
-            "If the URL parameter is missing, use the attached sample image by default. "
-            "Show the recognized text and any errors clearly in the UI. "
-            "Return output strictly as a JSON object with keys: 'index.html', 'README.md', and 'LICENSE'."
-        )
-    # Define system instruction for the model (UNCHANGED)
+    # Define system instruction for the model
     system_prompt = (
         "You are an expert full-stack engineer and technical writer. Your task is to generate "
         "three files in a single structured JSON response: 'index.html', 'README.md', and 'LICENSE'. "
@@ -285,108 +226,64 @@ async def call_llm_for_code(prompt: str, task_id: str, image_parts: list) -> dic
         "for styling and must implement the requested application logic. The 'README.md' must be "
         "professional. The 'LICENSE' must contain the full text of the MIT license."
     )
-    
-    # Define the JSON response structure (UNCHANGED)
-    response_schema = {
-        "type": "OBJECT",
-        "properties": {
-            "index.html": {"type": "STRING", "description": "The complete, single-file HTML content with inline CSS and JS, using Tailwind."},
-            "README.md": {"type": "STRING", "description": "The professional Markdown content for the project README."},
-            "LICENSE": {"type": "STRING", "description": "The full text of the MIT license."}
-        },
-        "required": ["index.html", "README.md", "LICENSE"]
-    }
 
-    # --- CONSTRUCT THE CONTENTS FIELD ---
-    contents = []
-    
-    if image_parts:
-        # Combine image parts and the text prompt.
-        all_parts = image_parts + [
-            { "text": prompt } 
-        ]
-        contents.append({ "parts": all_parts })
-    else:
-        # If no images, use the original structure with only the text prompt
-        contents.append({ "parts": [{ "text": prompt }] })
-
-    # Log provider/base for debugging
-    try:
-        token_preview = (OPENAI_API_KEY[:6] + "…") if (LLM_PROVIDER == "openai" and OPENAI_API_KEY) else "none"
-        print(f"--- [LLM_CALL] Provider={LLM_PROVIDER}, OpenAI Base={settings.OPENAI_API_BASE if LLM_PROVIDER=='openai' else 'n/a'}, Token={token_preview} ---")
-    except Exception:
-        pass
-
-    # Use exponential backoff for the API call 
+    # Use exponential backoff for the API call
     max_retries = 3
     base_delay = 1
 
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient(timeout=60) as client:
-                if LLM_PROVIDER == "openai":
-                    if not OPENAI_API_KEY:
-                        raise Exception("OPENAI_API_KEY is not set but LLM_PROVIDER=openai")
-                    # Build OpenAI Chat Completions payload
-                    openai_messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ]
-                    # In this simplified path we ignore image_parts, as OpenAI images would require different handling
-                    openai_payload = {
-                        "model": "openrouter/auto",
-                        "response_format": {"type": "json_object"},
-                        "messages": openai_messages
+                if not OPENAI_API_KEY:
+                    raise Exception("OPENAI_API_KEY is not set.")
+
+                # Build OpenAI Chat Completions payload
+                openai_messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
+                openai_payload = {
+                    "model": "openai/gpt-4.1-nano",
+                    "response_format": {"type": "json_object"},
+                    "messages": openai_messages
+                }
+
+                # Log API base and token for debugging
+                token_preview = (OPENAI_API_KEY[:6] + "…") if OPENAI_API_KEY else "none"
+                print(f"--- [LLM_CALL] OpenAI Base={settings.OPENAI_API_BASE}, Token={token_preview} ---")
+
+                response = await client.post(
+                    OPENAI_CHAT_COMPLETIONS_URL,
+                    json=openai_payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "HTTP-Referer": os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:8000"),
+                        "X-Title": os.getenv("OPENROUTER_X_TITLE", "TDS Task Receiver")
                     }
-                    response = await client.post(
-                        OPENAI_CHAT_COMPLETIONS_URL,
-                        json=openai_payload,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Accept": "application/json",
-                            "Authorization": f"Bearer {OPENAI_API_KEY}",
-                            # OpenRouter-compatible optional headers (can improve auth/routing)
-                            "HTTP-Referer": os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:8000"),
-                            "X-Title": os.getenv("OPENROUTER_X_TITLE", "TDS Task Receiver")
-                        }
-                    )
-                    response.raise_for_status()
-                    result = response.json()
-                    json_text = result["choices"][0]["message"]["content"]
-                    generated_files = json.loads(json_text)
-                else:
-                    if not GEMINI_API_KEY:
-                        raise Exception("GEMINI_API_KEY is not set but LLM_PROVIDER=gemini")
-                    # Construct the final Gemini API payload
-                    payload = {
-                        "contents": contents,  
-                        "systemInstruction": { "parts": [{ "text": system_prompt }] },
-                        "generationConfig": {
-                            "responseMimeType": "application/json",
-                            "responseSchema": response_schema
-                        }
-                    }
-                    url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
-                    response = await client.post(
-                        url,
-                        json=payload,
-                        headers={"Content-Type": "application/json"}
-                    )
-                    response.raise_for_status()
-                    result = response.json()
-                    json_text = result['candidates'][0]['content']['parts'][0]['text']
-                    generated_files = json.loads(json_text)
+                )
+
+                response.raise_for_status()
+
+                if not response.text or not response.text.strip():
+                    raise ValueError("Received empty response body from LLM.")
+
+                result = response.json()
+
+                if not result.get("choices") or not result["choices"][0].get("message") or not result["choices"][0]["message"].get("content"):
+                    raise ValueError("LLM response is missing expected 'content'.")
+
+                json_text = result["choices"][0]["message"]["content"]
+                generated_files = json.loads(json_text)
 
                 print(f"--- [LLM_CALL] Successfully generated files on attempt {attempt + 1}. ---")
                 return generated_files
 
         except httpx.HTTPStatusError as e:
-            try:
-                body = e.response.text
-            except Exception:
-                body = "<no body>"
+            body = e.response.text if e.response else "<no body>"
             print(f"--- [LLM_CALL] HTTP Error on attempt {attempt + 1}: {e}. Body: {body} ---")
-        except (httpx.RequestError, KeyError, json.JSONDecodeError, Exception) as e:
+        except (httpx.RequestError, KeyError, json.JSONDecodeError, ValueError) as e:
             print(f"--- [LLM_CALL] Processing Error on attempt {attempt + 1}: {e}. ---")
 
         if attempt < max_retries - 1:
@@ -553,24 +450,10 @@ async def generate_files_and_deploy(task_data: TaskRequest):
             repo_url_auth=repo_url_auth, 
             repo_url_http=repo_url_http, 
             round_index=round_index
-        ) 
-        
-        # 2. Process Attachments for LLM Input
-        image_parts = []
-        attachment_list_for_llm_prompt = []
+        )
 
-        for attachment in attachments:
-            # Check for image parts for LLM input
-            if is_image_data_uri(attachment.url):
-                gemini_part = data_uri_to_gemini_part(attachment.url)
-                if gemini_part:
-                    image_parts.append(gemini_part)
-            
-            # List all attachment names for the prompt
-            attachment_list_for_llm_prompt.append(attachment.name)
-
-        print(f"--- [LLM_INPUT] Found {len(image_parts)} image(s) to pass to LLM. ---")
-        
+        # 2. Process Attachments for Prompt Context
+        attachment_list_for_llm_prompt = [att.name for att in attachments]
         attachment_list_str = ", ".join(attachment_list_for_llm_prompt)
         
         # 3. AI Code Generation - Adapt Prompt for Round 2
@@ -600,7 +483,7 @@ async def generate_files_and_deploy(task_data: TaskRequest):
         # --- MODIFICATION END ---
         
         # Call LLM
-        generated_files = await call_llm_for_code(llm_prompt, task_id, image_parts)
+        generated_files = await call_llm_for_code(llm_prompt, task_id)
         
         # 4. Save Generated Code Locally
         # This overwrites the cloned files (index.html, README.md, LICENSE)
