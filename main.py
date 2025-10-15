@@ -1,3 +1,11 @@
+# Add at the top of main.py - BEFORE all other imports
+import os
+os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
+os.environ['GIT_PYTHON_REFRESH'] = 'quiet'
+
+# Now import GitPython at module level
+import git
+
 from fastapi import FastAPI, HTTPException
 from starlette.responses import JSONResponse
 from fastapi import Request
@@ -6,7 +14,6 @@ from config import get_settings
 import asyncio
 import httpx # Used for making the HTTP notification call
 import json # For parsing the structured JSON response from the LLM
-import os # For configuration and file system operations
 import base64
 import re
 import subprocess
@@ -111,8 +118,6 @@ async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, 
 async def commit_and_publish(repo: "git.Repo", task_id: str, round_index: int, repo_name: str) -> dict:
     """Handles adding, committing, pushing, and configuring GitHub Pages after files are saved."""
 
-    os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
-    import git
     github_username = settings.GITHUB_USERNAME
     github_token = settings.GITHUB_TOKEN
     
