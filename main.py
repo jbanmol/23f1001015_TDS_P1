@@ -351,13 +351,21 @@ async def call_llm_for_code(prompt: str, task_id: str, image_parts: list) -> dic
                         }
                     )
                     response.raise_for_status()
+                    if not response.text or not response.text.strip():
+                        raise ValueError("Received empty response body from LLM.")
+
                     result = response.json()
+
+                    if not result.get("choices") or not result["choices"][0].get("message") or not result["choices"][0]["message"].get("content"):
+                        raise ValueError("LLM response is missing expected 'content'.")
+
                     json_text = result["choices"][0]["message"]["content"]
                     generated_files = json.loads(json_text)
+
                 else:
                     if not GEMINI_API_KEY:
                         raise Exception("GEMINI_API_KEY is not set but LLM_PROVIDER=gemini")
-                    # Construct the final Gemini API payload
+
                     payload = {
                         "contents": contents,  
                         "systemInstruction": { "parts": [{ "text": system_prompt }] },
@@ -367,13 +375,22 @@ async def call_llm_for_code(prompt: str, task_id: str, image_parts: list) -> dic
                         }
                     }
                     url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
+
                     response = await client.post(
                         url,
                         json=payload,
                         headers={"Content-Type": "application/json"}
                     )
+
                     response.raise_for_status()
+                    if not response.text or not response.text.strip():
+                        raise ValueError("Received empty response body from LLM.")
+
                     result = response.json()
+
+                    if not result.get('candidates') or not result['candidates'][0].get('content') or not result['candidates'][0]['content'].get('parts') or not result['candidates'][0]['content']['parts'][0].get('text'):
+                        raise ValueError("LLM response is missing expected 'text' part.")
+
                     json_text = result['candidates'][0]['content']['parts'][0]['text']
                     generated_files = json.loads(json_text)
 
@@ -386,7 +403,7 @@ async def call_llm_for_code(prompt: str, task_id: str, image_parts: list) -> dic
             except Exception:
                 body = "<no body>"
             print(f"--- [LLM_CALL] HTTP Error on attempt {attempt + 1}: {e}. Body: {body} ---")
-        except (httpx.RequestError, KeyError, json.JSONDecodeError, Exception) as e:
+        except (httpx.RequestError, KeyError, json.JSONDecodeError, ValueError) as e:
             print(f"--- [LLM_CALL] Processing Error on attempt {attempt + 1}: {e}. ---")
 
         if attempt < max_retries - 1:
