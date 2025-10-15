@@ -5,10 +5,8 @@ from functools import lru_cache
 # Define the structure for all required secrets/config
 class Settings(BaseSettings):
     # API Keys/Tokens
-    LLM_PROVIDER: str = "gemini"  # Supported: "gemini" | "openai"
-    GEMINI_API_KEY: str | None = None
-    OPENAI_API_KEY: str | None = None
-    OPENAI_API_BASE: str = "https://api.openai.com/v1"  # Allows OpenAI-compatible proxies (e.g., AIPipe)
+    OPENAI_API_KEY: str
+    OPENAI_API_BASE: str = "https://aipipe.org/openrouter/v1"
     GITHUB_TOKEN: str
     
     # Project-specific variables
