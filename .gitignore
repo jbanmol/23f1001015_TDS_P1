@@ -12,6 +12,10 @@
 # Project planning documents (may contain sensitive info)
 plan.md
 
+# Documentation files (except README.md)
+*.md
+!README.md
+
 # API Keys and Secrets
 *.key
 *.pem

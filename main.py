@@ -32,6 +32,8 @@ settings = get_settings()
 # --- Helper Function for Security ---
 def verify_secret(secret_from_request: str) -> bool:
     """Checks if the provided secret matches the expected student secret."""
+    if not secret_from_request or not isinstance(secret_from_request, str):
+        return False
     return secret_from_request == settings.STUDENT_SECRET
 
 # --- GITHUB CONSTANTS ---
@@ -55,32 +57,68 @@ received_task_data = {}
 # --- REFACTORING: SPLIT deploy_to_github ---
 
 async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, repo_url_http: str, round_index: int):
-    """Handles creating the remote repo (R1) or cloning the existing one (R2+) into an EMPTY directory."""
+    """ENHANCED: Handles creating the remote repo (R1) or cloning the existing one (R2+) with better error handling."""
     
- 
-
- 
     github_username = settings.GITHUB_USERNAME
     github_token = settings.GITHUB_TOKEN
     
     headers = {
         "Authorization": f"token {github_token}",
         "Accept": "application/vnd.github.v3+json",
-        "X-GitHub-Api-Version": "2022-11-28"
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": f"TDS-TaskReceiver/1.0 ({github_username})"
     }
 
-    async with httpx.AsyncClient(timeout=45) as client:
+    # ENHANCED: Increased timeout for large repos and slow networks
+    async with httpx.AsyncClient(timeout=90) as client:
         try:
             # 1. CREATE or INITIALIZE REPO / CLONE EXISTING REPO
             if round_index == 1:
-                print(f"   -> R1: Creating remote repository '{repo_name}'...")
-                payload = {"name": repo_name, "private": False, "auto_init": True}
-                response = await client.post(f"{GITHUB_API_BASE}/user/repos", json=payload, headers=headers)
-                response.raise_for_status()
+                print(f"   -> R1: Setting up remote repository '{repo_name}'...")
+                
+                # ENHANCED: Check if repository already exists first
+                check_response = await client.get(f"{GITHUB_API_BASE}/repos/{github_username}/{repo_name}", headers=headers)
+                
+                if check_response.status_code == 200:
+                    print(f"   -> Repository '{repo_name}' already exists, using existing repository")
+                elif check_response.status_code == 404:
+                    print(f"   -> Creating new repository '{repo_name}'...")
+                    payload = {
+                        "name": repo_name, 
+                        "private": False, 
+                        "auto_init": True,
+                        "description": f"Auto-generated repository for task {repo_name}"
+                    }
+                    
+                    create_response = await client.post(f"{GITHUB_API_BASE}/user/repos", json=payload, headers=headers)
+                    
+                    # ENHANCED: Better error handling for different failure modes
+                    if create_response.status_code == 422:
+                        error_data = create_response.json()
+                        if any("already exists" in str(error).lower() for error in error_data.get("errors", [])):
+                            print("   -> Repository already exists (race condition), proceeding...")
+                        else:
+                            raise Exception(f"Repository creation failed: {error_data}")
+                    else:
+                        create_response.raise_for_status()
+                        print("   -> Repository created successfully")
+                elif check_response.status_code == 403:
+                    raise Exception("GitHub API rate limit exceeded or insufficient permissions")
+                else:
+                    check_response.raise_for_status()
 
-                # Initialize local git repo in the EMPTY path
+                # Initialize local git repo
                 repo = git.Repo.init(local_path)
-                repo.create_remote('origin', repo_url_auth)
+                
+                # ENHANCED: Better remote handling
+                try:
+                    origin = repo.remote('origin')
+                    origin.set_url(repo_url_auth)
+                    print("   -> Updated existing remote 'origin'")
+                except git.exc.NoSuchRemoteError:
+                    origin = repo.create_remote('origin', repo_url_auth)
+                    print("   -> Created remote 'origin'")
+                
                 print("   -> R1: Local git repository initialized.")
             
             elif round_index >= 2:
@@ -93,11 +131,41 @@ async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, 
             return repo
 
         except httpx.HTTPStatusError as e:
-            print(f"--- [API ERROR] GitHub API call failed with status {e.response.status_code}: {e.response.text} ---")
-            raise Exception("GitHub API call failed during repository setup.")
+            # ENHANCED: Detailed error handling for different GitHub API errors
+            status_code = e.response.status_code
+            error_text = e.response.text if e.response else "No response body"
+            
+            if status_code == 401:
+                error_msg = "GitHub authentication failed. Check your GITHUB_TOKEN."
+            elif status_code == 403:
+                if "rate limit" in error_text.lower():
+                    error_msg = "GitHub API rate limit exceeded. Please wait and try again."
+                else:
+                    error_msg = "GitHub API access forbidden. Check token permissions (needs 'repo' scope)."
+            elif status_code == 404:
+                error_msg = f"Repository or GitHub user not found. Check GITHUB_USERNAME: '{github_username}'"
+            elif status_code == 422:
+                error_msg = f"GitHub API validation error: {error_text}"
+            else:
+                error_msg = f"GitHub API error {status_code}: {error_text}"
+            
+            print(f"--- [GITHUB API ERROR] {error_msg} ---")
+            raise Exception(error_msg)
+            
         except git.GitCommandError as e:
-            print(f"--- [GIT ERROR] Failed to perform git operation: {e} ---")
-            raise Exception("Git operation failed during repository setup.")
+            # ENHANCED: Better Git error handling
+            error_str = str(e)
+            if "authentication failed" in error_str.lower():
+                error_msg = "Git authentication failed. Check GITHUB_TOKEN permissions."
+            elif "repository not found" in error_str.lower():
+                error_msg = f"Git repository not found: {repo_url_http}"
+            elif "network" in error_str.lower() or "timeout" in error_str.lower():
+                error_msg = "Git operation failed due to network issues. Check internet connection."
+            else:
+                error_msg = f"Git operation failed: {error_str}"
+            
+            print(f"--- [GIT ERROR] {error_msg} ---")
+            raise Exception(error_msg)
 
 
 async def commit_and_publish(repo, task_id: str, round_index: int, repo_name: str) -> dict:
@@ -109,11 +177,13 @@ async def commit_and_publish(repo, task_id: str, round_index: int, repo_name: st
     headers = {
         "Authorization": f"token {github_token}",
         "Accept": "application/vnd.github.v3+json",
-        "X-GitHub-Api-Version": "2022-11-28"
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": f"TDS-TaskReceiver/1.0 ({github_username})"
     }
     repo_url_http = f"https://github.com/{github_username}/{repo_name}"
 
-    async with httpx.AsyncClient(timeout=45) as client:
+    # ENHANCED: Increased timeout for GitHub Pages operations
+    async with httpx.AsyncClient(timeout=120) as client:
         try:
             # 1. ADD, COMMIT, AND PUSH FILES
             # The new files (generated and attachments) are now in the local_path.
@@ -133,37 +203,85 @@ async def commit_and_publish(repo, task_id: str, round_index: int, repo_name: st
             print("   -> Waiting 10 seconds for GitHub to register the main branch...")
             await asyncio.sleep(10)
 
-            # 2. ENABLE GITHUB PAGES WITH ROBUST RETRIES
-            print("   -> Enabling GitHub Pages with robust retries...")
+            # ENHANCED: Wait for GitHub to process the push
+            print("   -> Waiting 15 seconds for GitHub to process the push...")
+            await asyncio.sleep(15)
+
+            # 2. ENABLE GITHUB PAGES WITH ENHANCED ROBUSTNESS
+            print("   -> Configuring GitHub Pages with enhanced error handling...")
             pages_api_url = f"{GITHUB_API_BASE}/repos/{github_username}/{repo_name}/pages"
             pages_payload = {"source": {"branch": "main", "path": "/"}}
-            pages_max_retries = 5
-            pages_base_delay = 3
+            
+            # ENHANCED: More retries and better error handling for Pages
+            pages_max_retries = 8
+            pages_base_delay = 5
 
             for retry_attempt in range(pages_max_retries):
                 try:
+                    # Check current Pages status
                     pages_response = await client.get(pages_api_url, headers=headers)
-                    is_configured = (pages_response.status_code == 200)
-
-                    if is_configured:
-                        print(f"   -> Pages exists. Updating configuration (Attempt {retry_attempt + 1}).")
-                        (await client.put(pages_api_url, json=pages_payload, headers=headers)).raise_for_status()
-                    else:
-                        print(f"   -> Creating Pages configuration (Attempt {retry_attempt + 1}).")
-                        (await client.post(pages_api_url, json=pages_payload, headers=headers)).raise_for_status()
-
-                    print("   -> Pages configuration successful.")
-                    break
+                    
+                    if pages_response.status_code == 200:
+                        # Pages exists, update configuration
+                        print(f"   -> Pages exists, updating configuration (Attempt {retry_attempt + 1})")
+                        update_response = await client.put(pages_api_url, json=pages_payload, headers=headers)
+                        if update_response.status_code in [200, 204]:
+                            print("   -> Pages configuration updated successfully")
+                            break
+                        else:
+                            print(f"   -> Pages update returned {update_response.status_code}, trying POST...")
+                            # Fall through to POST creation
+                    
+                    if pages_response.status_code == 404:
+                        # Pages doesn't exist, create it
+                        print(f"   -> Creating Pages configuration (Attempt {retry_attempt + 1})")
+                        create_response = await client.post(pages_api_url, json=pages_payload, headers=headers)
+                        
+                        if create_response.status_code in [201, 409]:  # 409 = already exists
+                            print("   -> Pages configuration created successfully")
+                            break
+                        else:
+                            create_response.raise_for_status()
                 
                 except httpx.HTTPStatusError as e:
-                    if e.response.status_code == 422 and "main branch must exist" in e.response.text and retry_attempt < pages_max_retries - 1:
-                        delay = pages_base_delay * (2 ** retry_attempt)
-                        print(f"   -> [Timing Issue] Branch not recognized. Retrying in {delay} seconds...")
+                    status_code = e.response.status_code
+                    error_text = e.response.text
+                    
+                    # ENHANCED: Handle specific GitHub Pages errors
+                    if status_code == 422:
+                        if "main branch must exist" in error_text:
+                            delay = pages_base_delay * (retry_attempt + 1)
+                            print(f"   -> Branch not ready yet, waiting {delay}s (attempt {retry_attempt + 1})...")
+                            await asyncio.sleep(delay)
+                            continue
+                        elif "pages already exist" in error_text.lower():
+                            print("   -> Pages already configured, proceeding...")
+                            break
+                    elif status_code == 409:
+                        print("   -> Pages already exist, proceeding...")
+                        break
+                    elif status_code == 403 and retry_attempt < pages_max_retries - 1:
+                        delay = pages_base_delay * 2
+                        print(f"   -> Rate limited, waiting {delay}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        if retry_attempt < pages_max_retries - 1:
+                            delay = pages_base_delay * (retry_attempt + 1)
+                            print(f"   -> Pages error {status_code}, retrying in {delay}s...")
+                            await asyncio.sleep(delay)
+                        else:
+                            raise
+                except Exception as e:
+                    if retry_attempt < pages_max_retries - 1:
+                        delay = pages_base_delay
+                        print(f"   -> Pages setup error: {e}, retrying in {delay}s...")
                         await asyncio.sleep(delay)
                     else:
                         raise
             else:
-                raise Exception("Failed to configure GitHub Pages after multiple retries due to branch existence.")
+                print("   -> WARNING: Pages configuration may have failed, but proceeding...")
+                # Don't fail the entire task for Pages issues
 
             # 3. CONSTRUCT RETURN VALUES
             print("   -> Waiting 5 seconds for GitHub Pages deployment...")
@@ -436,8 +554,10 @@ async def save_attachments_locally(task_dir: str, attachments: list) -> list:
             saved_files.append(filename)
             
         except Exception as e:
-            print(f"    -> CRITICAL ERROR saving attachment {filename}: {e}")
-            raise Exception(f"Failed to save attachment {filename} locally.")
+            print(f"    -> ERROR saving attachment {filename}: {e}")
+            print(f"    -> Skipping invalid attachment and continuing with others")
+            # Continue with other attachments instead of raising exception
+            continue
 
     return saved_files
 # --- Main Orchestration Logic ---
