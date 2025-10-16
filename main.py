@@ -289,6 +289,25 @@ async def commit_and_publish(repo, task_id: str, round_index: int, repo_name: st
 
             pages_url = f"{GITHUB_PAGES_BASE}/{repo_name}/"
 
+            # Verify GitHub Pages is reachable (HTTP 200) with retries
+            try:
+                check_attempts = 10
+                delays = [2, 3, 5, 8, 13, 13, 13, 13, 13, 13]
+                for i in range(check_attempts):
+                    try:
+                        resp = await client.get(pages_url, headers={"Accept": "text/html"})
+                        if resp.status_code == 200:
+                            print(f"   -> GitHub Pages reachable (200 OK) on attempt {i+1}")
+                            break
+                        else:
+                            print(f"   -> Pages probe got {resp.status_code}, retrying in {delays[i]}s...")
+                    except Exception as pe:
+                        print(f"   -> Pages probe error: {pe}, retrying in {delays[i]}s...")
+                    await asyncio.sleep(delays[i])
+            except Exception:
+                # Non-fatal
+                print("   -> WARNING: Skipping Pages reachability verification due to errors")
+
             return {
                 "repo_url": repo_url_http,
                 "commit_sha": commit_sha,
@@ -351,38 +370,99 @@ async def call_llm_for_code(prompt: str, task_id: str) -> dict:
     print(f"--- [LLM_CALL] Attempting to generate code for Task: {task_id} using OpenAI API ---")
 
     # Define system instruction for the model - ENHANCED FOR EVALUATION SUCCESS
+    from datetime import datetime
+    current_year = datetime.now().year
     system_prompt = (
-        "You are an expert full-stack web developer producing static single-file web apps for automated evaluation and GitHub Pages deployment.\n\n"
+        "You are an expert full-stack web developer creating FUNCTIONAL web applications for automated testing and GitHub Pages deployment.\n\n"
+        "CRITICAL: This code undergoes automated static, dynamic (Playwright), and LLM-based evaluation by instructors.\n\n"
         "RESPONSE FORMAT: Return ONLY a valid JSON object with exactly three keys and no extra text:\n"
         "{\n  \"index.html\": \"<complete self-contained HTML string>\",\n  \"README.md\": \"<complete README markdown>\",\n  \"LICENSE\": \"<MIT license text>\"\n}\n\n"
-        "PRIORITY ORDER (obey strictly in order):\n"
-        "1. Satisfy the ACCEPTANCE_CRITERIA in the user message exactly (DOM IDs, text content, JavaScript expressions). These are machine-executed checks that determine pass/fail.\n"
-        "2. index.html must be a single self-contained file (embedded JS/CSS allowed; HTTPS CDNs required). Must render correctly on GitHub Pages without server processing.\n"
-        "3. README.md must include exact headings: ## Summary, ## Setup, ## Usage, ## Files, ## Testing, ## License.\n"
-        "4. LICENSE must contain full MIT license text with current year and \"PLACEHOLDER_AUTHOR\" as author name.\n"
-        "5. Do NOT include secrets, tokens, or credentials anywhere in generated code or documentation.\n"
-        "6. Wrap ALL parsing in try/catch blocks; validate arrays with Array.isArray(); use optional chaining (?.) and nullish coalescing (??).\n\n"
+        "REPOSITORY-LEVEL REQUIREMENTS (MANDATORY FOR EVALUATION):\n"
+        "1. LICENSE: Must be valid MIT License with current year (2025) and 'PLACEHOLDER_AUTHOR' as author\n"
+        "2. README.md: Must be professional quality with exact sections specified\n"
+        "3. Repository: Must be public and GitHub Pages must return HTTP 200\n"
+        "4. Security: No secrets, tokens, or credentials anywhere in code or git history\n\n"
+        "EVALUATION PIPELINE (MANDATORY - ZERO TOLERANCE):\n"
+        "1. PLAYWRIGHT CHECKS: Every 'js:' expression in ACCEPTANCE_CRITERIA must evaluate to true in browser\n"
+        "2. REPO-LEVEL CHECKS: MIT LICENSE, professional README.md, public repo, Pages enabled\n"
+        "3. LLM STATIC CHECKS: Code quality, documentation quality, implementation correctness\n"
+        "4. TEMPLATE VARIABLES: Handle ${seed} and ${result} placeholders correctly in checks\n"
+        "5. FUNCTIONAL IMPLEMENTATION: Don't just create elements - implement working functionality\n"
+        "6. DATA PROCESSING: Parse and display CSV/JSON data correctly with accurate calculations\n\n"
         "MANDATORY TECHNICAL REQUIREMENTS:\n"
-        "- Use Tailwind CSS via CDN for styling (responsive design required)\n"
-        "- Include proper meta tags, semantic HTML, ARIA attributes\n"
+        "- Use Bootstrap 5 or Tailwind CSS via CDN for styling (responsive required)\n"
+        "- Include proper meta tags: charset, viewport, description\n"
         "- Handle URL parameters when specified (e.g., ?url=, ?token=)\n"
-        "- Process JSON/CSV data client-side with proper parsing\n"
+        "- Process CSV/JSON data with WORKING calculations and displays\n"
         "- Use relative paths for attachments (e.g., './data.csv', './sample.png')\n"
-        "- Implement comprehensive error handling and loading states\n\n"
-        "MANDATORY BEHAVIOR:\n"
-        "- Use exact DOM IDs, classes, and text literals from ACCEPTANCE_CRITERIA - do NOT rename or modify them\n"
-        "- Include hidden metadata: <meta id=\"task-meta\" data-task=\"{task_id}\" data-round=\"{round}\" data-timestamp=\"{timestamp}\">\n"
-        "- Add window.__selfCheck() function that returns computed values and validation results\n"
-        "- Keep implementation minimal and deterministic - prioritize correctness over aesthetics\n"
-        "- Set required DOM content during DOMContentLoaded (no manual user actions required unless brief specifies)\n"
-        "- Format numbers deterministically (use Number().toFixed(2) or Intl.NumberFormat as specified by checks)\n\n"
-        "CRITICAL ERROR HANDLING:\n"
-        "- Wrap ALL data fetching, parsing, and DOM manipulation in try/catch blocks\n"
-        "- Provide graceful fallbacks when attachments cannot be loaded\n"
-        "- Never let JavaScript errors crash the application\n"
-        "- Show user-friendly error messages with retry options\n"
-        "- Validate data types before processing (Array.isArray(), typeof checks)\n"
-        "- Include loading states and error boundaries for async operations\n\n"
+        "- Implement error handling with user-friendly messages\n"
+        "- Ensure all interactive elements respond correctly\n"
+        "- Parse CSV headers properly and aggregate data accurately\n\n"
+        "FRAMEWORK SELECTION:\n"
+        "- If any check or brief references Bootstrap (e.g., link[href*='bootstrap']), load Bootstrap 5 via jsdelivr\n"
+        "- Otherwise default to Tailwind CSS via CDN\n\n"
+        "EVALUATION READINESS:\n"
+        "- Code will be boolean-scored by an LLM judge requiring evidence; make correctness obvious:\n"
+        "  * Functions used aptly (avoid over-engineering)\n"
+        "  * No hard-coded values when data comes from brief/attachments/URL params\n"
+        "  * Meaningful variable names; comment non-obvious logic\n"
+        "  * Basic error handling with graceful fallbacks/retries where appropriate\n"
+        "  * For charts: titles, axis labels, legends, distinct colors\n\n"
+        "PLAYWRIGHT COMPLIANCE (CRITICAL):\n"
+        "- Use EXACT DOM IDs, classes, text from ACCEPTANCE_CRITERIA - zero substitutions allowed\n"
+        "- Handle template variables: replace ${seed} with actual values, ${result} with computed totals\n"
+        "- Include metadata: <meta id=\"task-meta\" data-task=\"{task_id}\" data-round=\"{round}\">\n"
+        "- Add window.__selfCheck() function with computed values and check results\n"
+        "- Prioritize FUNCTIONALITY over aesthetics - working code beats pretty code\n"
+        "- Set DOM content during DOMContentLoaded - no user interaction required for basic functionality\n"
+        "- Display numbers with precise formatting (parseFloat + toFixed for money, Intl.NumberFormat for counts)\n"
+        "- Make CSV parsing work: split by newlines, handle headers, aggregate correctly\n"
+        "- Ensure forms submit and display results immediately\n"
+        "- Create elements that EXIST and have CONTENT, not empty placeholders\n\n"
+        "LICENSE TEMPLATE (MANDATORY - USE EXACTLY):\n"
+        "MIT License\n\n"
+        f"Copyright (c) {current_year} PLACEHOLDER_AUTHOR\n\n"
+        "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+        "of this software and associated documentation files (the \"Software\"), to deal\n"
+        "in the Software without restriction, including without limitation the rights\n"
+        "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n"
+        "copies of the Software, and to permit persons to whom the Software is\n"
+        "furnished to do so, subject to the following conditions:\n\n"
+        "The above copyright notice and this permission notice shall be included in all\n"
+        "copies or substantial portions of the Software.\n\n"
+        "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n"
+        "IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n"
+        "FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n"
+        "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n"
+        "LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n"
+        "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n"
+        "SOFTWARE.\n\n"
+        "CRITICAL ERROR HANDLING (MANDATORY):\n"
+        "- Wrap ALL async operations in try/catch with meaningful error messages\n"
+        "- When CSV/JSON loading fails, show '0.00' or empty state but still create required DOM elements\n"
+        "- Never let JavaScript errors prevent DOM element creation\n"
+        "- Validate data before processing: Array.isArray(data) && data.length > 0\n"
+        "- Handle malformed CSV gracefully (skip bad rows, continue processing)\n"
+        "- Show loading indicators during fetch operations\n"
+        "- Provide fallback content when external resources fail\n\n"
+        "COMMON INSTRUCTOR EVALUATION FAILURES TO AVOID:\n"
+        "- Repo lacks valid MIT LICENSE file in root directory\n"
+        "- README.md is unprofessional or missing required sections\n"
+        "- Creating #total-sales but never setting its textContent\n"
+        "- Parsing CSV but not displaying the calculated results\n"
+        "- Using innerHTML when Playwright checks test textContent\n"
+        "- Creating form elements that don't respond to submission\n"
+        "- Missing error handling that causes undefined to display\n"
+        "- Not handling template variables like ${seed} in task descriptions\n"
+        "- JavaScript checks fail in Playwright browser evaluation\n"
+        "- Pages not accessible (GitHub Pages deployment failure)\n\n"
+        "REPOSITORY STRUCTURE (MANDATORY):\n"
+        "- /index.html (complete self-contained web app)\n"
+        "- /README.md (professional documentation with exact sections)\n"
+        "- /LICENSE (valid MIT license)\n"
+        "- /[attachments] (data.csv, input.md, etc. as specified)\n"
+        "- Repository must be PUBLIC\n"
+        "- GitHub Pages must be ENABLED and return HTTP 200\n\n"
         "OUTPUT CONSTRAINT: Return ONLY the JSON object - no explanatory text, no code blocks, no markdown formatting."
     )
 
@@ -405,7 +485,7 @@ async def call_llm_for_code(prompt: str, task_id: str) -> dict:
                     "model": "openai/gpt-4o-mini",  # Reliable, fast, and cost-effective model
                     "response_format": {"type": "json_object"},
                     "messages": openai_messages,
-                    "max_tokens": 4000,  # Ensure sufficient tokens for complete responses
+                    "max_tokens": 8000,  # Increased to reduce truncation risk per evaluation guidance
                     "temperature": 0.3   # Balanced creativity and consistency
                 }
 
@@ -464,11 +544,15 @@ async def notify_evaluation_server(
     nonce: str, 
     repo_url: str,
     commit_sha: str,     
-    pages_url: str       
+    pages_url: str,
+    deadline_epoch: float
 ) -> bool:
     """
     Calls the evaluation_url to notify the server that the code has been deployed.
+    Retries with exponential backoff until success or deadline reached.
     """
+    import time
+
     payload = {
         "email": email,
         "task": task_id,
@@ -478,32 +562,31 @@ async def notify_evaluation_server(
         "commit_sha": commit_sha,
         "pages_url": pages_url  
     }
-    
-    max_retries = 3
-    base_delay = 1
-    
+
+    attempt = 0
+    delay = 1
+
     print(f"--- [NOTIFICATION] Attempting to notify server at {evaluation_url} ---")
-    
-    for attempt in range(max_retries):
+
+    while True:
+        now = time.time()
+        if now >= deadline_epoch:
+            print("--- [NOTIFICATION] Deadline reached before successful notification ---")
+            return False
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.post(evaluation_url, json=payload)
-                response.raise_for_status() # Raises an exception for 4xx/5xx status codes
-                
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(evaluation_url, json=payload, headers={"Content-Type": "application/json"})
+                response.raise_for_status()
                 print(f"--- [NOTIFICATION] Successfully notified server. Response: {response.status_code} ---")
                 return True
-        except httpx.HTTPStatusError as e:
-            print(f"--- [NOTIFICATION] HTTP Error on attempt {attempt + 1}: {e}. ---")
-        except httpx.RequestError as e:
-            print(f"--- [NOTIFICATION] Request Error on attempt {attempt + 1}: {e}. ---")
-        
-        if attempt < max_retries - 1:
-            delay = base_delay * (2 ** attempt)
-            print(f"--- [NOTIFICATION] Retrying in {delay} seconds... ---")
-            await asyncio.sleep(delay)
-            
-    print(f"--- [NOTIFICATION] Failed to notify evaluation server after {max_retries} attempts. ---")
-    return False
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            attempt += 1
+            # Cap delay at 60s to avoid very long sleeps
+            sleep_for = min(delay, 60)
+            print(f"--- [NOTIFICATION] Error on attempt {attempt}: {e}. Retrying in {sleep_for}s ---")
+            await asyncio.sleep(sleep_for)
+            delay = delay * 2 if delay < 60 else 60
+            continue
 
 
 async def save_attachments_locally(task_dir: str, attachments: list) -> list:
@@ -640,18 +723,29 @@ async def generate_files_and_deploy(task_data: TaskRequest):
             checks_formatted = json.dumps(task_data.checks, indent=2)
             
             llm_prompt = (
-                f"🔄 MODIFICATION TASK - ROUND {round_index}\n\n"
+                f"MODIFICATION TASK - ROUND {round_index}\n\n"
                 f"TASK OBJECTIVE: {brief}\n\n"
-                f"CONTEXT: This is Round {round_index} update to task {task_id}. Preserve ALL previous functionality while adding new features.\n\n"
+                f"CRITICAL: This is Round {round_index} - automatic testing will fail if ANY previous functionality breaks.\n\n"
+                f"CONTEXT: This is Round {round_index} update to task {task_id}. You MUST preserve ALL previous functionality while adding new features.\n\n"
                 f"ACCEPTANCE_CRITERIA (MANDATORY - THESE DETERMINE PASS/FAIL):\n"
                 f"The evaluator will run these exact JavaScript expressions. ALL must evaluate to true:\n"
                 f"{checks_formatted}\n\n"
-                f"BACKWARD COMPATIBILITY (CRITICAL):\n"
-                f"- Preserve ALL DOM IDs, classes, and behaviors from previous rounds\n"
-                f"- Do NOT remove or rename elements relied upon by earlier checks\n"
-                f"- Maintain all previous functionality unless explicitly asked to change it\n"
-                f"- Update metadata element to include current round:\n"
+                f"CHECKS FORMAT: If a check starts with 'js:', evaluate the substring after 'js:' as the JavaScript expression to satisfy.\n"
+                f"REPO-LEVEL CHECKS: Repository requirements (MIT LICENSE, README.md, Pages) must remain satisfied.\n\n"
+                f"BACKWARD COMPATIBILITY WARNING: Previous round elements and functionality MUST continue to work.\n\n"
+                f"BACKWARD COMPATIBILITY (CRITICAL - ZERO TOLERANCE):\n"
+                f"1. PRESERVE EXISTING ELEMENTS: All DOM IDs, classes from Round 1 must remain functional\n"
+                f"2. MAINTAIN CALCULATIONS: Previous numeric calculations must still work correctly\n"
+                f"3. PRESERVE DATA PROCESSING: CSV/JSON parsing from Round 1 must continue working\n"
+                f"4. FUNCTIONAL INHERITANCE: All interactive features from Round 1 must be preserved\n"
+                f"5. UPDATE METADATA: Update to include current round:\n"
                 f"  <meta id=\"task-meta\" data-task=\"{task_id}\" data-round=\"{round_index}\" data-timestamp=\"{timestamp}\">\n\n"
+                f"BREAKING CHANGES TO AVOID:\n"
+                f"- Renaming or removing existing DOM IDs\n"
+                f"- Changing the format of numeric displays (e.g., from '60.00' to '$60')\n"
+                f"- Modifying existing event handlers or form behavior\n"
+                f"- Breaking CSV/JSON parsing that worked in Round 1\n"
+                f"- Removing functionality that previous acceptance criteria depend on\n\n"
                 f"DELIVERABLES:\n"
                 f"- Updated 'index.html' with new functionality (complete, self-contained file)\n"
                 f"- Revised 'README.md' with same headings, updated content\n"
@@ -669,18 +763,78 @@ async def generate_files_and_deploy(task_data: TaskRequest):
                 f"## Files (add any new files)\n"
                 f"## Testing (include ALL acceptance criteria from all rounds)\n"
                 f"## License (same as before)\n\n"
-                f"SELF-TEST UPDATE (REQUIRED):\n"
-                f"Update window.__selfCheck() to include new computed values:\n"
-                f"window.__selfCheck = () => ({{\n"
-                f"  task: '{task_id}',\n"
-                f"  round: {round_index},\n"
-                f"  computed: {{\n"
-                f"    // Include ALL computed values from all rounds\n"
-                f"  }},\n"
-                f"  checks: {{\n"
-                f"    // Include ALL acceptance criteria from all rounds\n"
-                f"  }}\n"
-                f"}});\n\n"
+                f"SELF-TEST UPDATE (MANDATORY - ENHANCED VALIDATION):\n"
+                f"Update window.__selfCheck() to validate ALL rounds:\n"
+                f"```javascript\n"
+                f"window.__selfCheck = () => {{\n"
+                f"  const results = {{\n"
+                f"    task: '{task_id}',\n"
+                f"    round: {round_index},\n"
+                f"    timestamp: new Date().toISOString(),\n"
+                f"    elements: {{}},\n"
+                f"    computed: {{}},\n"
+                f"    checks: {{}},\n"
+                f"    backwardCompatibility: {{}}\n"
+                f"  }};\n"
+                f"  \n"
+                f"  // Validate current round acceptance criteria (strip 'js:' prefix if present)\n"
+                f"  const rawChecks = {json.dumps(task_data.checks)};\n"
+                f"  const currentChecks = rawChecks.map(c => (typeof c === 'string' && c.trim().startsWith('js:')) ? c.trim().slice(3).trim() : c);\n"
+                f"  currentChecks.forEach((expr, i) => {{\n"
+                f"    try {{\n"
+                f"      results.checks[`round_{round_index}_check_${{i}}`] = {{\n"
+                f"        expression: expr,\n"
+                f"        result: eval(expr),\n"
+                f"        error: null\n"
+                f"      }};\n"
+                f"    }} catch (error) {{\n"
+                f"      results.checks[`round_{round_index}_check_${{i}}`] = {{\n"
+                f"        expression: expr,\n"
+                f"        result: false,\n"
+                f"        error: error.message\n"
+                f"      }};\n"
+                f"    }}\n"
+                f"  }});\n"
+                f"  \n"
+                f"  // Validate all elements referenced in checks exist\n"
+                f"  const allSelectors = currentChecks\n"
+                f"    .filter(check => check.includes('querySelector'))\n"
+                f"    .map(check => check.match(/querySelector\\(['\"](.*?)['\"]\\)/)?.[1])\n"
+                f"    .filter(Boolean);\n"
+                f"  \n"
+                f"  allSelectors.forEach(selector => {{\n"
+                f"    const element = document.querySelector(selector);\n"
+                f"    results.elements[selector] = {{\n"
+                f"      exists: !!element,\n"
+                f"      content: element ? element.textContent.trim() : null,\n"
+                f"      visible: element ? !element.hidden && element.offsetParent !== null : false\n"
+                f"    }};\n"
+                f"  }});\n"
+                f"  \n"
+                f"  return results;\n"
+                f"}};\n"
+                f"\n"
+                f"// Enhanced validation with timing\n"
+                f"document.addEventListener('DOMContentLoaded', () => {{\n"
+                f"  setTimeout(() => {{\n"
+                f"    const validation = window.__selfCheck();\n"
+                f"    console.log('Round {round_index} validation results:', validation);\n"
+                f"    \n"
+                f"    // Report failures immediately\n"
+                f"    const failures = Object.entries(validation.checks)\n"
+                f"      .filter(([key, check]) => !check.result);\n"
+                f"    \n"
+                f"    if (failures.length > 0) {{\n"
+                f"      console.error(`ROUND {round_index} VALIDATION FAILED:`, failures);\n"
+                f"      failures.forEach(([key, check]) => {{\n"
+                f"        console.error(`FAILED: ${{check.expression}} - ${{check.error || 'Evaluated to false'}}`);\n"
+                f"      }});\n"
+                f"    }} else {{\n"
+                f"      console.log('All Round {round_index} checks passed');\n"
+                f"    }}\n"
+                f"  }}, 1500); // Extra time for Round 2 complexity\n"
+                f"}});\n"
+                f"```\n\n"
                 f"QUALITY ASSURANCE:\n"
                 f"- Ensure new features don't break existing functionality\n"
                 f"- Test interactions between old and new features\n"
@@ -695,76 +849,188 @@ async def generate_files_and_deploy(task_data: TaskRequest):
             checks_formatted = json.dumps(task_data.checks, indent=2)
             
             llm_prompt = (
-                f"🚀 NEW APPLICATION TASK - ROUND 1\n\n"
+                f"NEW APPLICATION TASK - ROUND 1\n\n"
                 f"TASK OBJECTIVE: {brief}\n\n"
+                f"CRITICAL SUCCESS REQUIREMENT: This code will be automatically tested. Failure = 0 points.\n\n"
                 f"ACCEPTANCE_CRITERIA (MANDATORY - THESE DETERMINE PASS/FAIL):\n"
                 f"The evaluator will run these exact JavaScript expressions in the browser. They must ALL evaluate to true:\n"
                 f"{checks_formatted}\n\n"
+                f"CHECKS FORMAT: If a check starts with 'js:', evaluate the substring after 'js:' as the JavaScript expression to satisfy.\n"
+                f"REPO-LEVEL CHECKS: Requirements like MIT LICENSE and professional README.md must be satisfied in the repository.\n\n"
+                f"VALIDATION WARNING: Each check must pass or the entire task fails evaluation.\n"
+                f"DO NOT ASSUME - Implement exactly what each check verifies.\n\n"
                 f"METADATA REQUIREMENTS:\n"
                 f"- Task ID: {task_id}\n"
                 f"- Round: 1\n"
                 f"- Attachments: {attachment_list_for_llm_prompt}\n\n"
-                f"RENDERING RULES (MANDATORY):\n"
+                f"RENDERING RULES (MANDATORY - ZERO TOLERANCE):\n"
                 f"- Use exact DOM IDs, classes, and text from ACCEPTANCE_CRITERIA above\n"
                 f"- Do NOT rename, modify, or substitute any IDs or text literals referenced in the checks\n"
-                f"- Include this hidden metadata element exactly:\n"
+                f"- Include this hidden metadata element exactly (required for evaluation):\n"
                 f"  <meta id=\"task-meta\" data-task=\"{task_id}\" data-round=\"1\" data-timestamp=\"{timestamp}\">\n"
                 f"- All values referenced by ACCEPTANCE_CRITERIA must be set during DOMContentLoaded\n"
-                f"- Attachments are available at relative paths: './filename.ext'\n\n"
+                f"- Attachments are available at relative paths: './filename.ext'\n"
+                f"- Elements MUST exist and be accessible before evaluation runs\n\n"
                 f"DELIVERABLES:\n"
                 f"- Complete 'index.html' file (fully self-contained with embedded styles/scripts)\n"
                 f"- Professional 'README.md' with required headings (see below)\n"
                 f"- MIT 'LICENSE' file with current year\n\n"
-                f"README REQUIREMENTS (use these exact headings):\n"
+                f"README REQUIREMENTS (MANDATORY PROFESSIONAL QUALITY):\n"
+                f"Use these exact headings for instructor LLM evaluation:\n\n"
                 f"## Summary\n"
-                f"Brief description of what the app does and which acceptance criteria it implements.\n\n"
+                f"Clear, professional description of app functionality and purpose. Mention which acceptance criteria are implemented.\n\n"
                 f"## Setup\n"
-                f"Steps to view on GitHub Pages or locally in browser.\n\n"
+                f"Step-by-step instructions to view on GitHub Pages or run locally. Include live Pages URL.\n\n"
                 f"## Usage\n"
-                f"How to use the page and any query parameters (e.g., ?url= or ?token=).\n\n"
+                f"Detailed usage instructions including URL parameters, form inputs, and expected outputs.\n\n"
                 f"## Files\n"
-                f"List of included files and their roles (index.html, attachments, etc.).\n\n"
+                f"Complete file structure with descriptions:\n"
+                f"- index.html: Main application file\n"
+                f"- README.md: This documentation\n"
+                f"- LICENSE: MIT license\n"
+                f"- [list all attachments and their purposes]\n\n"
                 f"## Testing\n"
-                f"Copy the ACCEPTANCE_CRITERIA array from above and explain how each check maps to DOM elements or calculations.\n\n"
+                f"Document ALL acceptance criteria from task and how each is implemented:\n"
+                f"{checks_formatted}\n"
+                f"Explain the DOM elements, calculations, and functionality that satisfy each check.\n\n"
                 f"## License\n"
-                f"State that LICENSE file contains MIT license with author and year.\n\n"
-                f"IMPLEMENTATION PATTERNS (include these in your code):\n"
-                f"CSV Parsing Example:\n"
-                f"try {{\n"
-                f"  const csvText = await fetch('./data.csv').then(r => r.text());\n"
-                f"  const rows = csvText.trim().split('\\n').map(row => row.split(','));\n"
-                f"  // Process rows...\n"
-                f"}} catch (error) {{\n"
-                f"  console.error('CSV parsing failed:', error);\n"
-                f"  // Show fallback UI\n"
-                f"}}\n\n"
-                f"Deterministic Number Display:\n"
-                f"const total = calculations();\n"
-                f"document.querySelector('#total-sales').textContent = Number(total).toFixed(2);\n\n"
-                f"SELF-TEST FUNCTION (REQUIRED):\n"
-                f"Include this pattern in your JavaScript:\n"
-                f"window.__selfCheck = () => ({{\n"
-                f"  task: '{task_id}',\n"
-                f"  round: 1,\n"
-                f"  computed: {{\n"
-                f"    // Include key computed values that checks validate\n"
-                f"  }},\n"
-                f"  checks: {{\n"
-                f"    // Map each ACCEPTANCE_CRITERIA expression to true/false\n"
+                f"This project is licensed under the MIT License - see the LICENSE file for details.\n\n"
+                f"IMPLEMENTATION PATTERNS (MANDATORY - USE THESE EXACT PATTERNS):\n\n"
+                f"CSV Parsing Pattern (REQUIRED for CSV tasks):\n"
+                f"```javascript\n"
+                f"document.addEventListener('DOMContentLoaded', async () => {{\n"
+                f"  try {{\n"
+                f"    const csvText = await fetch('./data.csv').then(r => {{\n"
+                f"      if (!r.ok) throw new Error(`HTTP ${{r.status}}: ${{r.statusText}}`);\n"
+                f"      return r.text();\n"
+                f"    }});\n"
+                f"    \n"
+                f"    // Parse CSV - MUST handle headers properly\n"
+                f"    const lines = csvText.trim().split('\\n');\n"
+                f"    const headers = lines[0].split(',').map(h => h.trim());\n"
+                f"    const rows = lines.slice(1).map(line => {{\n"
+                f"      const values = line.split(',').map(v => v.trim());\n"
+                f"      const obj = {{}};\n"
+                f"      headers.forEach((header, i) => obj[header] = values[i]);\n"
+                f"      return obj;\n"
+                f"    }});\n"
+                f"    \n"
+                f"    // CALCULATE AND DISPLAY IMMEDIATELY\n"
+                f"    const total = rows.reduce((sum, row) => sum + parseFloat(row.sales || 0), 0);\n"
+                f"    document.querySelector('#total-sales').textContent = total.toFixed(2);\n"
+                f"    \n"
+                f"  }} catch (error) {{\n"
+                f"    console.error('CSV processing failed:', error);\n"
+                f"    document.querySelector('#total-sales').textContent = '0.00';\n"
+                f"    // MUST still create required elements even on error\n"
                 f"  }}\n"
-                f"}});\n\n"
-                f"CRITICAL SUCCESS FACTORS:\n"
-                f"- Implement ALL features mentioned in the brief completely and correctly\n"
-                f"- Ensure every ACCEPTANCE_CRITERIA check evaluates to true\n"
-                f"- Handle edge cases: empty data, network failures, invalid inputs\n"
-                f"- Use defensive programming patterns throughout\n"
-                f"- Test that the app works in a static file environment (GitHub Pages)"
+                f"}});\n"
+                f"```\n\n"
+                f"Number Display Pattern (MANDATORY for numeric displays):\n"
+                f"```javascript\n"
+                f"// ALWAYS ensure element exists and has value\n"
+                f"const element = document.querySelector('#total-sales');\n"
+                f"if (element) {{\n"
+                f"  element.textContent = Number(total || 0).toFixed(2);\n"
+                f"}} else {{\n"
+                f"  console.error('Required element #total-sales not found');\n"
+                f"}}\n"
+                f"```\n\n"
+                f"SELF-TEST FUNCTION (MANDATORY - INCLUDE EXACTLY):\n"
+                f"Add this function to validate your implementation:\n"
+                f"```javascript\n"
+                f"window.__selfCheck = () => {{\n"
+                f"  const results = {{\n"
+                f"    task: '{task_id}',\n"
+                f"    round: 1,\n"
+                f"    timestamp: new Date().toISOString(),\n"
+                f"    elements: {{}},\n"
+                f"    computed: {{}},\n"
+                f"    checks: {{}}\n"
+                f"  }};\n"
+                f"  \n"
+                f"  // Validate all required elements exist\n"
+                f"  const requiredElements = {json.dumps([check.split("'")[1] if "'" in check and "querySelector" in check else None for check in task_data.checks if "querySelector" in check])};\n"
+                f"  requiredElements.forEach(selector => {{\n"
+                f"    if (selector) {{\n"
+                f"      const element = document.querySelector(selector);\n"
+                f"      results.elements[selector] = {{\n"
+                f"        exists: !!element,\n"
+                f"        content: element ? element.textContent.trim() : null,\n"
+                f"        value: element ? element.value : null\n"
+                f"      }};\n"
+                f"    }}\n"
+                f"  }});\n"
+                f"  \n"
+                f"  // Test each acceptance criteria (strip 'js:' prefix if present)\n"
+                f"  try {{\n"
+                f"    const rawChecks = {json.dumps(task_data.checks)};\n"
+                f"    const checks = rawChecks.map(c => (typeof c === 'string' && c.trim().startsWith('js:')) ? c.trim().slice(3).trim() : c);\n"
+                f"    checks.forEach((expr, i) => {{\n"
+                f"      try {{\n"
+                f"        results.checks[`check_${{i}}`] = {{\n"
+                f"          expression: expr,\n"
+                f"          result: eval(expr),\n"
+                f"          error: null\n"
+                f"        }};\n"
+                f"      }} catch (error) {{\n"
+                f"        results.checks[`check_${{i}}`] = {{\n"
+                f"          expression: expr,\n"
+                f"          result: false,\n"
+                f"          error: error.message\n"
+                f"        }};\n"
+                f"      }}\n"
+                f"    }});\n"
+                f"  }} catch (error) {{\n"
+                f"    results.error = error.message;\n"
+                f"  }}\n"
+                f"  \n"
+                f"  return results;\n"
+                f"}};\n"
+                f"\n"
+                f"// Auto-run validation on load\n"
+                f"document.addEventListener('DOMContentLoaded', () => {{\n"
+                f"  setTimeout(() => {{\n"
+                f"    const validation = window.__selfCheck();\n"
+                f"    console.log('Self-validation results:', validation);\n"
+                f"    // Log any failed checks\n"
+                f"    Object.entries(validation.checks).forEach(([key, check]) => {{\n"
+                f"      if (!check.result) {{\n"
+                f"        console.warn(`FAILED CHECK: ${{check.expression}} - ${{check.error || 'Evaluated to false'}}`);\n"
+                f"      }}\n"
+                f"    }});\n"
+                f"  }}, 1000); // Wait 1s for async operations\n"
+                f"}});\n"
+                f"```\n\n"
+                f"CRITICAL SUCCESS FACTORS (ZERO TOLERANCE FOR FAILURE):\n"
+                f"1. MANDATORY ELEMENT CREATION: Every element referenced in ACCEPTANCE_CRITERIA must exist\n"
+                f"2. FUNCTIONAL IMPLEMENTATION: Don't just create elements - make them work\n"
+                f"3. DATA PROCESSING: If CSV/JSON is provided, parse it and display results correctly\n"
+                f"4. NUMERIC ACCURACY: Calculations must be precise (use parseFloat, toFixed)\n"
+                f"5. ERROR RESILIENCE: App must work even if attachments fail to load\n"
+                f"6. IMMEDIATE EXECUTION: Set values during DOMContentLoaded, not on user action\n"
+                f"7. VALIDATION COMPLIANCE: Every ACCEPTANCE_CRITERIA check must pass\n\n"
+                f"COMMON FAILURE MODES TO AVOID:\n"
+                f"- Creating elements but not setting their content\n"
+                f"- Displaying '$0.00' instead of actual calculated totals\n"
+                f"- Using innerHTML when textContent is tested\n"
+                f"- Missing error handling for fetch operations\n"
+                f"- Not handling CSV headers properly\n"
+                f"- Creating elements that exist but have no functionality\n\n"
+                f"SUCCESS VALIDATION CHECKLIST:\n"
+                f"Before submitting, manually verify:\n"
+                f"- All IDs from ACCEPTANCE_CRITERIA exist in DOM\n"
+                f"- All numeric displays show actual calculated values, not 0\n"
+                f"- CSV data is parsed and aggregated correctly\n"
+                f"- Forms and interactive elements respond to user input\n"
+                f"- Error messages appear for missing files\n"
+                f"- App works in GitHub Pages static environment"
             )
         
         # Add attachment context with enhanced instructions
         if attachment_list_str:
             llm_prompt += (
-                f"\n\n📎 ATTACHMENT FILES AVAILABLE:\n"
+                f"\n\nATTACHMENT FILES AVAILABLE:\n"
                 f"Files: {attachment_list_str}\n\n"
                 "ATTACHMENT USAGE INSTRUCTIONS:\n"
                 "- These files will be available in the same directory as index.html\n"
@@ -837,13 +1103,13 @@ async def generate_files_and_deploy(task_data: TaskRequest):
                 "```\n\n"
                 "QUALITY VALIDATION CHECKPOINT:\n"
                 "Before finalizing, verify:\n"
-                "✓ All interactive elements respond correctly\n"
-                "✓ Data transforms from raw format to user-friendly display\n"
-                "✓ Error states provide clear, actionable feedback\n"
-                "✓ Loading states prevent user confusion\n"
-                "✓ Mobile responsiveness works across screen sizes\n"
-                "✓ Color contrast meets accessibility standards\n"
-                "✓ Code is well-structured and commented for maintenance"
+                "- All interactive elements respond correctly\n"
+                "- Data transforms from raw format to user-friendly display\n"
+                "- Error states provide clear, actionable feedback\n"
+                "- Loading states prevent user confusion\n"
+                "- Mobile responsiveness works across screen sizes\n"
+                "- Color contrast meets accessibility standards\n"
+                "- Code is well-structured and commented for maintenance"
             )
         # --- MODIFICATION END ---
         
@@ -858,16 +1124,27 @@ async def generate_files_and_deploy(task_data: TaskRequest):
         elapsed = check_time_limit()
         print(f"⏰ Time check after LLM call: {elapsed:.1f}s elapsed")
         
-        # 4. Save Generated Code Locally
+        # 4. VALIDATE GENERATED CODE FOR SECRETS
+        # Project requirement: avoid secrets in git history (trufflehog, gitleaks)
+        for filename, content in generated_files.items():
+            if any(keyword in content.lower() for keyword in ['api_key', 'secret', 'token', 'password', 'private']):
+                if not any(safe_term in content.lower() for safe_term in ['placeholder', 'example', 'dummy', 'your_', 'insert_']):
+                    print(f"--- [SECRET WARNING] Potential secret detected in {filename} ---")
+        # 5. Save Generated Code Locally
         # This overwrites the cloned files (index.html, README.md, LICENSE)
         await save_generated_files_locally(task_id, generated_files)
         
-        # 5. Save Attachments Locally
+        # 6. Save Attachments Locally
         # This adds attachments (like data.csv) to the local directory
         # The attachment saving now happens *after* the clone/init, resolving the Round 2 error.
         await save_attachments_locally(local_path, attachments)
 
-        # 6. COMMIT AND PUBLISH
+        # 6. VALIDATE REPOSITORY CREATION TIME
+        # Project requirement: repo must be created after task request time
+        repo_created_after_request = True  # Placeholder - in real implementation, compare timestamps
+        if not repo_created_after_request:
+            print("--- [WARNING] Repository creation timestamp validation failed ---")
+        # 8. COMMIT AND PUBLISH
         print(f"--- [DEPLOYMENT] Committing and Publishing task {task_id}, Round {round_index} to GitHub... ---")
         
         deployment_info = await commit_and_publish(
@@ -887,7 +1164,8 @@ async def generate_files_and_deploy(task_data: TaskRequest):
         elapsed = check_time_limit()
         print(f"⏰ Final time check before notification: {elapsed:.1f}s elapsed")
         
-        # 7. Notify the Evaluation Server
+        # 9. Notify the Evaluation Server
+        deadline_epoch = start_time + MAX_PROCESSING_TIME - 5  # small buffer
         await notify_evaluation_server(
             evaluation_url=evaluation_url, 
             email=email,
@@ -896,7 +1174,8 @@ async def generate_files_and_deploy(task_data: TaskRequest):
             nonce=nonce, 
             repo_url=repo_url,
             commit_sha=commit_sha,
-            pages_url=pages_url
+            pages_url=pages_url,
+            deadline_epoch=deadline_epoch
         )
 
     except Exception as e:

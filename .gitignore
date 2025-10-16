@@ -116,3 +116,8 @@ coverage.xml
 
 # FastAPI specific
 .pytest_cache/
+
+# Test scripts (not needed in deployment)
+test_*.sh
+test_*.json
+proj_*.json
