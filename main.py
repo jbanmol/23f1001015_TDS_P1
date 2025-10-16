@@ -115,7 +115,7 @@ async def setup_local_repo(local_path: str, repo_name: str, repo_url_auth: str, 
                     origin = repo.remote('origin')
                     origin.set_url(repo_url_auth)
                     print("   -> Updated existing remote 'origin'")
-                except git.exc.NoSuchRemoteError:
+                except Exception:  # Handle all remote-related errors
                     origin = repo.create_remote('origin', repo_url_auth)
                     print("   -> Created remote 'origin'")
                 
