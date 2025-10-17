@@ -300,7 +300,7 @@ async def commit_and_publish(repo, task_id: str, round_index: int, repo_name: st
                             print(f"   -> GitHub Pages reachable (200 OK) on attempt {i+1}")
                             break
                         else:
-                            print(f"   -> Pages probe got {resp.status_code}, retrying in {delays[i]}s...")
+                            pass
                     except Exception as pe:
                         print(f"   -> Pages probe error: {pe}, retrying in {delays[i]}s...")
                     await asyncio.sleep(delays[i])
