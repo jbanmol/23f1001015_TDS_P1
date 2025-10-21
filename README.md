@@ -110,7 +110,7 @@ tds-p1-final/
 ├── config.py                  # Configuration and environment variables
 ├── Dockerfile                 # Docker configuration for HuggingFace deployment
 ├── requirements.txt           # Python dependencies
-├── test_enhanced_sytem.sh    # End-to-end system test script
+├── test_enhanced_sytem.sh     # End-to-end system test script
 └── README.md                  # This file
 ```
 
